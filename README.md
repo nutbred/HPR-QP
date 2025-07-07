@@ -11,7 +11,7 @@
 $$
 \begin{array}{ll}
 \underset{x \in \mathbb{R}^n}{\min} \quad \frac{1}{2}\langle x,Qx \rangle + \langle c, x \rangle +\phi(x)\\
-\text{s.t.} \quad \quad \quad \quad \quad   l \leq  A x \in \leq u,
+\text{s.t.} \quad \quad \quad \quad \quad   l \leq  A x \leq u,
 \end{array}
 $$
 
