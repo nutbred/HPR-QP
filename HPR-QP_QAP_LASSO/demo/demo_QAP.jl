@@ -11,7 +11,7 @@ function gen_random_QAP(n::Int, seed::Int=1)
     A .= (A + A') / 2  # Make A symmetric
 
     B = rand(n, n)
-    B .= B - diagm(diag(B))  # Ensure B is not diagonal
+    B .= B - diagm(diag(B))  # Ensure B has zero diagonal
     B .= (B + B') / 2  # Make B symmetric
 
     return A, B

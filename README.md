@@ -1,4 +1,4 @@
-# HPR-QP: A GPU Solver for Convex Composite Quadratic Programming on Julia
+# HPR-QP: A GPU Solver for Convex Composite Quadratic Programming in Julia
 
 > **HPR-QP: A dual Halpern Peaceman–Rachford (HPR) method for solving large-scale convex composite quadratic programming (CCQP).**
 
