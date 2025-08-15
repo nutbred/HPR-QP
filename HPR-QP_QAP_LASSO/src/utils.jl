@@ -1,10 +1,10 @@
 # This function reads a QAP problem from a .mat file and prepares it for solving.
 function read_QAP_mat(FILE_NAME::String)
     QAPdata = matread(FILE_NAME)
-    A = QAPdata["A"]
-    B = QAPdata["B"]
-    S = QAPdata["S"]
-    T = QAPdata["T"]
+    A = Float32.(QAPdata["A"])
+    B = Float32.(QAPdata["B"])
+    S = Float32.(QAPdata["S"])
+    T = Float32.(QAPdata["T"])
     n = size(A, 1)
     
     println("QAP problem information: nRow = ", 2*n, ", nCol = ", n^2)
@@ -14,42 +14,42 @@ function read_QAP_mat(FILE_NAME::String)
     T_gpu = CuMatrix(T)
 
     Q = QAP_Q_operator_gpu(A_gpu, B_gpu, S_gpu, T_gpu, n)
-    c = CUDA.zeros(Float64, n^2)
-    ee = ones(Float64, n)
-    Id = spdiagm(ones(Float64, n))
+    c = CUDA.zeros(Float32, n^2)
+    ee = ones(Float32, n)
+    Id = spdiagm(ones(Float32, n))
     A = sparse(vcat(kron(ee', Id), kron(Id, ee')))
 
     A_gpu = CuSparseMatrixCSR(A)
     AT_gpu = CuSparseMatrixCSR(A')
-    b = CuVector(ones(Float64, 2 * n))
-    l = CUDA.zeros(Float64, n^2)
-    u = Inf * CUDA.ones(Float64, n^2)
+    b = CuVector(ones(Float32, 2 * n))
+    l = CUDA.zeros(Float32, n^2)
+    u = Inf32 * CUDA.ones(Float32, n^2)
     # Convert to standard QP_info format
-    standard_qp = QP_info_gpu(Q, c, A_gpu, AT_gpu, b, copy(b), l, u, 0.0, [])
+    standard_qp = QP_info_gpu(Q, c, A_gpu, AT_gpu, b, copy(b), l, u, 0.0f0, [])
 
     return standard_qp
 end
 
 # This function formulates a LASSO problem from a sparse matrix A, vector b, and regularization parameter lambda.
-function formulate_LASSO_from_A_b_lambda(A::SparseMatrixCSC, b::Vector{Float64}, lambda::Float64)
+function formulate_LASSO_from_A_b_lambda(A::SparseMatrixCSC, b::Vector{Float32}, lambda::Float32)
     ## LASSO: min 0.5 ||Ax-b||^2 + λ ||x||_1
     n_org = size(A, 2)
     ATb = A' * b
-    lambda = lambda * ones(n_org)
+    lambda_vec = lambda * ones(Float32, n_org)
     println("LASSO problem information: nRow = ", 0, ", nCol = ", n_org)
     c = -ATb
-    c0 = 0.5 * norm(b)^2
+    c0 = 0.5f0 * norm(b)^2
     Q = LASSO_Q_operator_gpu(CuSparseMatrixCSR(A), CuSparseMatrixCSR(A'))
-    A = CuSparseMatrixCSR(sparse([], [], Float64[], 0, n_org))
-    AT = CuSparseMatrixCSR(sparse([], [], Float64[], n_org, 0))
-    c = CuVector{Float64}(c)
-    lp_AL = CuVector{Float64}(zeros(0))
-    lp_AU = CuVector{Float64}(zeros(0))
-    l = CuVector{Float64}(-Inf * ones(n_org))
-    u = CuVector{Float64}(Inf * ones(n_org))
-    lambda = CuVector{Float64}(lambda)
+    A_csr = CuSparseMatrixCSR(sparse([], [], Float32[], 0, n_org))
+    AT_csr = CuSparseMatrixCSR(sparse([], [], Float32[], n_org, 0))
+    c_gpu = CuVector{Float32}(c)
+    lp_AL = CuVector{Float32}(zeros(Float32, 0))
+    lp_AU = CuVector{Float32}(zeros(Float32, 0))
+    l = CuVector{Float32}(-Inf32 * ones(Float32, n_org))
+    u = CuVector{Float32}(Inf32 * ones(Float32, n_org))
+    lambda_gpu = CuVector{Float32}(lambda_vec)
 
-    standard_qp = QP_info_gpu(Q, c, A, AT, lp_AL, lp_AU, l, u, c0, lambda)
+    standard_qp = QP_info_gpu(Q, c_gpu, A_csr, AT_csr, lp_AL, lp_AU, l, u, c0, lambda_gpu)
 
     # Return the modified qp
     return standard_qp
@@ -59,24 +59,25 @@ end
 function formulate_LASSO_from_mat(file::String)
     ## LASSO: min 0.5 ||Ax-b||^2 + λ ||x||_1, we take the value of λ = 1e-3 * ||A' b||_∞ for LIBSVM instances
     LASSO = matread(file)
-    A = sparse(LASSO["A"])
-    b = reshape(LASSO["b"], size(A, 1))
+    A = sparse(Float32.(LASSO["A"]))
+    b = vec(Float32.(LASSO["b"]))
     n_org = size(A, 2)
     ATb = A' * b
-    lambda = 1e-3 * norm(ATb, Inf) * ones(n_org)
+    lambda_val = 1e-3f0 * norm(ATb, Inf)
+    lambda = lambda_val * ones(Float32, n_org)
     c = -ATb
-    c0 = 0.5 * norm(b)^2
+    c0 = 0.5f0 * norm(b)^2
     Q = LASSO_Q_operator_gpu(CuSparseMatrixCSR(A), CuSparseMatrixCSR(A'))
-    A = CuSparseMatrixCSR(sparse([], [], Float64[], 0, n_org))
-    AT = CuSparseMatrixCSR(sparse([], [], Float64[], n_org, 0))
-    c = CuVector{Float64}(c)
-    lp_AL = CuVector{Float64}(zeros(0))
-    lp_AU = CuVector{Float64}(zeros(0))
-    l = CuVector{Float64}(-Inf * ones(n_org))
-    u = CuVector{Float64}(Inf * ones(n_org))
-    lambda = CuVector{Float64}(lambda)
+    A_csr = CuSparseMatrixCSR(sparse([], [], Float32[], 0, n_org))
+    AT_csr = CuSparseMatrixCSR(sparse([], [], Float32[], n_org, 0))
+    c_gpu = CuVector{Float32}(c)
+    lp_AL = CuVector{Float32}(zeros(Float32, 0))
+    lp_AU = CuVector{Float32}(zeros(Float32, 0))
+    l = CuVector{Float32}(-Inf32 * ones(Float32, n_org))
+    u = CuVector{Float32}(Inf32 * ones(Float32, n_org))
+    lambda_gpu = CuVector{Float32}(lambda)
 
-    standard_qp = QP_info_gpu(Q, c, A, AT, lp_AL, lp_AU, l, u, c0, lambda)
+    standard_qp = QP_info_gpu(Q, c_gpu, A_csr, AT_csr, lp_AL, lp_AU, l, u, c0, lambda_gpu)
 
     # Return the modified qp
     return standard_qp
@@ -85,62 +86,68 @@ end
 # This function performs scaling on the QP problem data and returns the scaling information.
 function scaling!(qp::QP_info_gpu, params::HPRQP_parameters)
     m, n = size(qp.A)
-    row_norm = ones(m)
-    col_norm = ones(n)
+    row_norm = ones(Float32, m)
+    col_norm = ones(Float32, n)
 
     AL_nInf = copy(qp.AL)
     AU_nInf = copy(qp.AU)
-    AL_nInf[qp.AL.==-Inf] .= 0.0
-    AU_nInf[qp.AU.==Inf] .= 0.0
-    scaling_info = Scaling_info_gpu(CuVector(copy(qp.l)), CuVector(copy(qp.l)), CuVector(row_norm), CuVector(col_norm), 1, 1, 1, 1, norm(max.(abs.(AL_nInf), abs.(AU_nInf)), Inf), norm(qp.c, Inf))
+    AL_nInf[qp.AL .== -Inf32] .= 0.0f0
+    AU_nInf[qp.AU .== Inf32] .= 0.0f0
+    
+    initial_norm_b = norm(max.(abs.(AL_nInf), abs.(AU_nInf)), Inf)
+    initial_norm_c = norm(qp.c, Inf)
+
+    scaling_info = Scaling_info_gpu(CuVector(copy(qp.l)), CuVector(copy(qp.u)), CuVector(row_norm), CuVector(col_norm), 1.0f0, 1.0f0, 1.0f0, 1.0f0, initial_norm_b, initial_norm_c)
+
     if params.use_bc_scaling
-        b_scale = max(1, norm(min.(qp.AL, qp.AU)), norm(qp.c))
-        c_scale = b_scale
+        b_scale = max(1.0f0, norm(max.(abs.(AL_nInf), abs.(AU_nInf))))
+        c_scale = max(1.0f0, norm(qp.c))
 
         qp.AL ./= b_scale
         qp.AU ./= b_scale
         qp.c ./= c_scale
         qp.lambda ./= c_scale
-        qp.l ./= b_scale
+        qp.l ./= b_scale # Assuming l and u are scaled with b
         qp.u ./= b_scale
         scaling_info.b_scale = b_scale
         scaling_info.c_scale = c_scale
     else
-        scaling_info.b_scale = 1.0
-        scaling_info.c_scale = 1.0
+        scaling_info.b_scale = 1.0f0
+        scaling_info.c_scale = 1.0f0
     end
 
     AL_nInf = copy(qp.AL)
     AU_nInf = copy(qp.AU)
-    AL_nInf[qp.AL.==-Inf] .= 0.0
-    AU_nInf[qp.AU.==Inf] .= 0.0
+    AL_nInf[qp.AL .== -Inf32] .= 0.0f0
+    AU_nInf[qp.AU .== Inf32] .= 0.0f0
     scaling_info.norm_b = norm(max.(abs.(AL_nInf), abs.(AU_nInf)))
     scaling_info.norm_c = norm(qp.c)
-    scaling_info.row_norm = row_norm
-    scaling_info.col_norm = col_norm
+    scaling_info.row_norm = CuVector(row_norm)
+    scaling_info.col_norm = CuVector(col_norm)
+
     return scaling_info
 end
 
-function mean(x::Vector{Float64})
+function mean(x::Vector{Float32})
     return sum(x) / length(x)
 end
 
 # This function performs power iteration to estimate the largest eigenvalue of a matrix AAT.
-function power_iteration_A_gpu(A::CuSparseMatrixCSR, AT::CuSparseMatrixCSR, max_iterations::Int=5000, tolerance::Float64=1e-4)
+function power_iteration_A_gpu(A::CuSparseMatrixCSR, AT::CuSparseMatrixCSR, max_iterations::Int=5000, tolerance::Float32=1e-4f0)
     seed = 1
     m, n = size(A)
-    z = CuVector(randn(Random.MersenneTwister(seed), m)) .+ 1e-8 # Initial random vector
-    q = CUDA.zeros(Float64, m)
-    ATq = CUDA.zeros(Float64, n)
-    lambda_max = 1.0
-    error = 1.0
+    z = CuVector(randn(Random.MersenneTwister(seed), Float32, m)) .+ 1e-8f0 # Initial random vector
+    q = CUDA.zeros(Float32, m)
+    ATq = CUDA.zeros(Float32, n)
+    lambda_max = 1.0f0
+    error = 1.0f0
     for i in 1:max_iterations
         q .= z
         q ./= CUDA.norm(q)
-        CUDA.CUSPARSE.mv!('N', 1, AT, q, 0, ATq, 'O', CUDA.CUSPARSE.CUSPARSE_SPMV_CSR_ALG2)
-        CUDA.CUSPARSE.mv!('N', 1, A, ATq, 0, z, 'O', CUDA.CUSPARSE.CUSPARSE_SPMV_CSR_ALG2)
+        CUDA.CUSPARSE.mv!('N', 1.0f0, AT, q, 0.0f0, ATq, 'O', CUDA.CUSPARSE.CUSPARSE_SPMV_CSR_ALG2)
+        CUDA.CUSPARSE.mv!('N', 1.0f0, A, ATq, 0.0f0, z, 'O', CUDA.CUSPARSE.CUSPARSE_SPMV_CSR_ALG2)
         lambda_max = CUDA.dot(q, z)
-        q .= z .- lambda_max .* q        # error 
+        q .= z .- lambda_max .* q      # error 
         error = CUDA.norm(q) / (CUDA.norm(z) + lambda_max)
         if error < tolerance
             return lambda_max
@@ -152,24 +159,24 @@ function power_iteration_A_gpu(A::CuSparseMatrixCSR, AT::CuSparseMatrixCSR, max_
 end
 
 # This function performs power iteration to estimate the largest eigenvalue of Q in a QAP problem.
-function power_iteration_Q_QAP_gpu(Q::QAP_Q_operator_gpu, max_iterations::Int=5000, tolerance::Float64=1e-4)
+function power_iteration_Q_QAP_gpu(Q::QAP_Q_operator_gpu, max_iterations::Int=5000, tolerance::Float32=1e-4f0)
     seed = 1
     n = Q.n^2
-    z = CuVector(randn(Random.MersenneTwister(seed), n)) .+ 1e-8 # Initial random vector
-    q = CUDA.zeros(Float64, n)
-    lambda_max = 1.0
-    temp1 = CUDA.zeros(Float64, n)
-    error = 1.0
+    z = CuVector(randn(Random.MersenneTwister(seed), Float32, n)) .+ 1e-8f0 # Initial random vector
+    q = CUDA.zeros(Float32, n)
+    lambda_max = 1.0f0
+    temp1 = CUDA.zeros(Float32, n)
+    error = 1.0f0
     for i in 1:max_iterations
         q .= z
-        if CUDA.norm(q) < 1e-15
+        if CUDA.norm(q) < 1e-15f0
             println("Power iteration failed to converge.")
-            return 1.0
+            return 1.0f0
         end
         q ./= CUDA.norm(q)
         QAP_Qmap!(q, z, temp1, Q)
         lambda_max = CUDA.dot(q, z)
-        q .= z .- lambda_max .* q        # error 
+        q .= z .- lambda_max .* q      # error 
         error = CUDA.norm(q) / (CUDA.norm(z) + lambda_max)
         if error < tolerance
             return lambda_max
@@ -181,24 +188,24 @@ function power_iteration_Q_QAP_gpu(Q::QAP_Q_operator_gpu, max_iterations::Int=50
 end
 
 # This function performs power iteration to estimate the largest eigenvalue of Q in a LASSO problem.
-function power_iteration_Q_LASSO_gpu(Q::LASSO_Q_operator_gpu, max_iterations::Int=5000, tolerance::Float64=1e-4)
+function power_iteration_Q_LASSO_gpu(Q::LASSO_Q_operator_gpu, max_iterations::Int=5000, tolerance::Float32=1e-4f0)
     seed = 1
     m, n = size(Q.A)
-    z = CuVector(randn(Random.MersenneTwister(seed), n)) .+ 1e-8 # Initial random vector
-    q = CUDA.zeros(Float64, n)
-    lambda_max = 1.0
-    temp1 = CUDA.zeros(Float64, m)
-    error = 1.0
+    z = CuVector(randn(Random.MersenneTwister(seed), Float32, n)) .+ 1e-8f0 # Initial random vector
+    q = CUDA.zeros(Float32, n)
+    lambda_max = 1.0f0
+    temp1 = CUDA.zeros(Float32, m)
+    error = 1.0f0
     for i in 1:max_iterations
         q .= z
-        if CUDA.norm(q) < 1e-15
+        if CUDA.norm(q) < 1e-15f0
             println("Power iteration failed to converge.")
-            return 1.0
+            return 1.0f0
         end
         q ./= CUDA.norm(q)
-        QAP_Qmap!(q, z, temp1, Q)
+        LASSO_Qmap!(q, z, temp1, Q) # Assuming a LASSO-specific map function exists
         lambda_max = CUDA.dot(q, z)
-        q .= z .- lambda_max .* q        # error 
+        q .= z .- lambda_max .* q      # error 
         error = CUDA.norm(q) / (CUDA.norm(z) + lambda_max)
 
         if error < tolerance
@@ -228,13 +235,16 @@ function run_file(FILE_NAME::String, params::HPRQP_parameters)
 
     setup_start = time()
     if params.use_bc_scaling
-        t_start = time()
+        t_start_scale = time()
         println("SCALING ... ")
         scaling_info_gpu = scaling!(standard_qp_gpu, params)
-        println(@sprintf("SCALING time: %.2f seconds", time() - t_start))
+        println(@sprintf("SCALING time: %.2f seconds", time() - t_start_scale))
     else
         println("SCALING: OFF")
-        scaling_info_gpu = scaling!(standard_qp_gpu, params)
+        # Still call scaling to initialize scaling_info, but with scaling off
+        params_no_scale = deepcopy(params)
+        params_no_scale.use_bc_scaling = false
+        scaling_info_gpu = scaling!(standard_qp_gpu, params_no_scale)
     end
     setup_time = time() - setup_start
 
@@ -253,10 +263,10 @@ function run_dataset(data_path::String, result_path::String, params::HPRQP_param
     files = readdir(data_path)
 
     # Specify the path and filename for the CSV file
-    csv_file = result_path * "HPRQP_result.csv"
+    csv_file = result_path * "HPRQP_result_f32.csv"
 
     # redirect the output to a file
-    log_path = result_path * "HPRQP_log.txt"
+    log_path = result_path * "HPRQP_log_f32.txt"
 
     if !isdir(result_path)
         mkdir(result_path)
@@ -322,9 +332,9 @@ function run_dataset(data_path::String, result_path::String, params::HPRQP_param
 
 
                 println("iter = ", results.iter,
-                    @sprintf("  time = %3.2e", results.time),
-                    @sprintf("  residual = %3.2e", results.residuals),
-                    @sprintf("  primal_obj = %3.15e", results.primal_obj),
+                        @sprintf("  time = %3.2e", results.time),
+                        @sprintf("  residual = %3.2e", results.residuals),
+                        @sprintf("  primal_obj = %3.15e", results.primal_obj),
                 )
 
                 push!(namelist, file)
@@ -354,12 +364,12 @@ function run_dataset(data_path::String, result_path::String, params::HPRQP_param
             )
 
             # compute the shifted geometric mean of the algorithm_time, put it in the last row
-            geomean_time = exp(mean(log.(timelist .+ 10.0))) - 10.0
-            geomean_time_4 = exp(mean(log.(time3list .+ 10.0))) - 10.0
-            geomean_time_6 = exp(mean(log.(time6list .+ 10.0))) - 10.0
-            geomean_iter = exp(mean(log.(iterlist .+ 10.0))) - 10.0
-            geomean_iter_4 = exp(mean(log.(iter4list .+ 10.0))) - 10.0
-            geomean_iter_6 = exp(mean(log.(iter6list .+ 10.0))) - 10.0
+            geomean_time = exp(mean(log.(Float32.(timelist) .+ 10.0f0))) - 10.0f0
+            geomean_time_4 = exp(mean(log.(Float32.(time3list) .+ 10.0f0))) - 10.0f0
+            geomean_time_6 = exp(mean(log.(Float32.(time6list) .+ 10.0f0))) - 10.0f0
+            geomean_iter = exp(mean(log.(Float32.(iterlist) .+ 10.0f0))) - 10.0f0
+            geomean_iter_4 = exp(mean(log.(Float32.(iter4list) .+ 10.0f0))) - 10.0f0
+            geomean_iter_6 = exp(mean(log.(Float32.(iter6list) .+ 10.0f0))) - 10.0f0
             push!(result_table, ["SGM10", geomean_iter, geomean_time, "", "", "", geomean_iter_4, geomean_time_4, geomean_iter_6, geomean_time_6, ""])
 
             # count the number of solved instances, termlist = "OPTIMAL" means solved
@@ -376,25 +386,31 @@ function run_dataset(data_path::String, result_path::String, params::HPRQP_param
 end
 
 # it's used in demo_LASSO.jl
-function solve_LASSO_from_A_b(A::SparseMatrixCSC, b::Vector{Float64}, params::HPRQP_parameters)
+function solve_LASSO_from_A_b(A::SparseMatrixCSC, b::Vector{Float32}, params::HPRQP_parameters)
     CUDA.device!(params.device_number)
-    t_start = time()
     setup_start = time()
     println("FORMULATING ... ")
-    standard_qp_gpu = formulate_LASSO_from_A_b_lambda(A, b, params.lambda)
-    println(@sprintf("FORMULATING time: %.2f seconds", time() - t_start))
+    # Assuming params.lambda is Float32 or will be converted correctly inside
+    lambda_f32 = Float32(params.lambda)
+    standard_qp_gpu = formulate_LASSO_from_A_b_lambda(A, b, lambda_f32)
+    formulate_time = time() - setup_start
+    println(@sprintf("FORMULATING time: %.2f seconds", formulate_time))
 
+    scale_time = 0.0
     if params.use_bc_scaling
-        t_start = time()
+        t_start_scale = time()
         println("SCALING ... ")
         scaling_info_gpu = scaling!(standard_qp_gpu, params)
-        println(@sprintf("SCALING time: %.2f seconds", time() - t_start))
+        scale_time = time() - t_start_scale
+        println(@sprintf("SCALING time: %.2f seconds", scale_time))
     else
         println("SCALING: OFF")
-        scaling_info_gpu = scaling!(standard_qp_gpu, params)
+        params_no_scale = deepcopy(params)
+        params_no_scale.use_bc_scaling = false
+        scaling_info_gpu = scaling!(standard_qp_gpu, params_no_scale)
     end
 
-    setup_time = time() - setup_start
+    setup_time = formulate_time + scale_time
     results = solve(standard_qp_gpu, scaling_info_gpu, params)
     println(@sprintf("Total time: %.2fs", setup_time + results.time),
         @sprintf("  setup time = %.2fs", setup_time),
