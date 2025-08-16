@@ -188,17 +188,17 @@ function power_iteration_Q_QAP_gpu(Q::QAP_Q_operator_gpu, max_iterations::Int=50
 end
 
 # This function performs power iteration to estimate the largest eigenvalue of Q in a LASSO problem.
-function power_iteration_Q_LASSO_gpu(Q::LASSO_Q_operator_gpu, max_iterations::Int=5000, tolerance::Float32=1e-4f0)
+function power_iteration_Q_LASSO_gpu(Q::LASSO_Q_operator_gpu, max_iterations::Int=5000, tolerance::Float32=1e-4)
     seed = 1
     m, n = size(Q.A)
-    z = CuVector(randn(Random.MersenneTwister(seed), Float32, n)) .+ 1e-8f0 # Initial random vector
+    z = CuVector(randn(Random.MersenneTwister(seed), Float32, n)) .+ 1e-7f0 # Initial random vector
     q = CUDA.zeros(Float32, n)
     lambda_max = 1.0f0
     temp1 = CUDA.zeros(Float32, m)
     error = 1.0f0
     for i in 1:max_iterations
         q .= z
-        if CUDA.norm(q) < 1e-15f0
+        if CUDA.norm(q) < 1e-7f0
             println("Power iteration failed to converge.")
             return 1.0f0
         end
